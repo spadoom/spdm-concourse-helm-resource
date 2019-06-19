@@ -1,15 +1,16 @@
 #!/bin/bash
 
-set -e
 set -o pipefail
+set -x
 
 exec 3>&1 # make stdout available as fd 3 for the result
 exec 1>&2 # redirect all output to stderr for logging
 
-source /opt/resource/common.sh
+source `dirname $0`/common.sh
 
 # Read inputs
 source=$1
+
 payload=$(mktemp helm-resource-request.XXXXXX)
 cat > $payload <&0
 
@@ -62,13 +63,11 @@ set_overriden_values() {
         key=${overriden_value_file%%=*}
         value=${overriden_value_file#*=}
         helm_cmd="$helm_cmd --set '$key=$(cat $source/$value)'"
-        helm_echo="$helm_echo --set '$key=$(cat $source/$value)'"
     done
 
     # Set value directly
     for overriden_value in $override_values; do
         helm_cmd="$helm_cmd --set '$(echo $overriden_value | base64 -d)'"
-        helm_echo="$helm_echo --set '$(echo $overriden_value | base64 -d)'"
     done
 
     # Get value from given path, but hide the value in the echo
@@ -77,7 +76,6 @@ set_overriden_values() {
         key=${overriden_secret_file%%=*}
         value=${overriden_secret_file#*=}
         helm_cmd="$helm_cmd --set '$key=$(cat $source/$value)'"
-        helm_echo="$helm_echo --set $key=***HIDDEN***"
     done
 
     # Set value directly, but hide the value in the echo
@@ -86,96 +84,70 @@ set_overriden_values() {
         key=${kv%%=*}
         value=${kv#*=}
         helm_cmd="$helm_cmd --set '$kv'"
-        helm_echo="$helm_echo --set '$key=***HIDDEN***'"
     done
 }
 
 helm_install() {
-    helm_cmd="$helm_request_base install --namespace $namespace"
-    helm_echo="$helm_request_base install --namespace $namespace"
+    helm_cmd="--namespace $namespace"
     if [ -n "$release" ]; then
         helm_cmd="$helm_cmd -n $release"
-        helm_echo="$helm_echo -n $release"
     fi
     if [ -n "$values" ]; then
         for value in $values; do
             helm_cmd="$helm_cmd -f $source/$value"
-            helm_echo="$helm_echo -f $source/$value"
         done
     fi
     set_overriden_values
     if [ "$replace" = true ]; then
         helm_cmd="$helm_cmd --replace"
-        helm_echo="$helm_echo --replace"
     fi
     if [ "$debug" = true ]; then
         helm_cmd="$helm_cmd --dry-run --debug"
-        helm_echo="$helm_echo --dry-run --debug"
     fi
     if [ "$devel" = true ]; then
         helm_cmd="$helm_cmd --devel"
-        helm_echo="$helm_echo --devel"
     fi
     if [ -n "$wait_until_ready" ] && [ "$wait_until_ready" -gt "0" ]; then
         helm_cmd="$helm_cmd --wait --timeout $wait_until_ready"
     fi
     if [ -n "$version" ]; then
         helm_cmd="$helm_cmd --version $version"
-        helm_echo="$helm_echo --version $version"
     fi
-    logfile="/tmp/log"
-    mkdir -p /tmp
-    helm_cmd="$helm_cmd $chart_full | tee $logfile"
-    helm_echo="$helm_echo $chart_full | tee $logfile"
-    echo "Running command $helm_echo"
-    eval "$helm_cmd"
+    echo $helm_cmd
 
-    # Find the name of the release
-    release=`cat $logfile | grep "NAME:" | awk '{print $2}'`
+    eval call_helm "install" ${helm_cmd} ${chart_full}
 }
 
 # Find the current revision of a helm release
 current_revision() {
-    revision=`$helm_request_base history $release | grep "DEPLOYED" | awk '{print $1}'`
+    revision=`call_helm history $release | grep "DEPLOYED" | awk '{print $1}'`
     echo $revision
 }
 
 helm_upgrade() {
-    helm_cmd="$helm_request_base upgrade $release"
-    helm_echo="$helm_request_base upgrade $release"
+    helm_cmd="$release"
     if [ -n "$values" ]; then
         for value in $values; do
             helm_cmd="$helm_cmd -f $source/$value"
-            helm_echo="$helm_echo -f $source/$value"
         done
     fi
     if [ -n "$wait_until_ready" ] && [ "$wait_until_ready" -gt "0" ]; then
         helm_cmd="$helm_cmd --wait --timeout $wait_until_ready"
-        helm_echo="$helm_echo --wait --timeout $wait_until_ready"
     fi
     set_overriden_values
     if [ "$debug" = true ]; then
         helm_cmd="$helm_cmd --dry-run --debug"
-        helm_echo="$helm_echo --dry-run --debug"
     fi
     if [ "$devel" = true ]; then
         helm_cmd="$helm_cmd --devel"
-        helm_echo="$helm_echo --devel"
     fi
     if [ -n "$version" ]; then
         helm_cmd="$helm_cmd --version $version"
-        helm_echo="$helm_echo --version $version"
     fi
     if [ "$recreate_pods" = true ]; then
         helm_cmd="$helm_cmd --recreate-pods"
-        helm_echo="$helm_echo --recreate-pods"
     fi
-    logfile="/tmp/log"
-    mkdir -p /tmp
-    helm_cmd="$helm_cmd $chart_full | tee $logfile"
-    helm_echo="$helm_echo $chart_full | tee $logfile"
-    echo "Running command $helm_echo"
-    eval "$helm_cmd"
+    eval call_helm upgrade $helm_cmd $chart_full
 }
 
 helm_delete() {
@@ -184,18 +156,10 @@ helm_delete() {
         exit 1
     fi
     echo "Deleting the release $release..."
-    helm_cmd="$helm_request_base delete"
-    helm_echo="$helm_request_base delete"
     if [ "$debug" = true ]; then
         helm_cmd="$helm_cmd --dry-run --debug"
-        helm_echo="$helm_echo --dry-run --debug"
     fi
-    logfile="/tmp/log"
-    mkdir -p /tmp
-    helm_cmd="$helm_cmd $release | tee $logfile"
-    helm_echo="$helm_echo $release | tee $logfile"
-    echo "Running command $helm_echo"
-    eval $helm_cmd
+    eval call_helm delete $helm_cmd $release
 }
 
 helm_purge() {
@@ -204,18 +168,11 @@ helm_purge() {
         exit 1
     fi
     echo "Deleting with purge the release $release..."
-    helm_cmd="helm delete --purge"
-    helm_echo="helm delete --purge"
+    helm_cmd=" --purge"
     if [ "$debug" = true ]; then
         helm_cmd="$helm_cmd --dry-run --debug"
-        helm_echo="$helm_echo --dry-run --debug"
     fi
-    logfile="/tmp/log"
-    mkdir -p /tmp
-    helm_cmd="$helm_cmd $release | tee $logfile"
-    helm_echo="$helm_echo $release | tee $logfile"
-    echo "Running command $helm_echo"
-    eval $helm_cmd
+    eval call_helm delete $helm_cmd $release
 }
 
 wait_ready_notice() {
@@ -228,7 +185,7 @@ is_deployed() {
     if [ -n "$1" ]; then
         set +e
         set +o pipefail
-        eval "$helm_request_base history $1" 2>&1 | grep 'DEPLOYED' > /dev/null
+        call_helm history $1 2>&1 | grep 'DEPLOYED' > /dev/null
         if [ $? = 0 ]; then
             # exists
             echo true

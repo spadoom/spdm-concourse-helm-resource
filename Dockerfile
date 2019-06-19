@@ -2,12 +2,9 @@ FROM alpine:3.7
 
 ENV CLOUD_SDK_VERSION 201.0.0
 ENV KUBECTL_VERSION 1.9.6
-ENV HELM_VERSION 2.9.1
+ENV HELM_VERSION 2.10.0
 
 ENV PATH /google-cloud-sdk/bin:$PATH
-
-ADD assets /opt/resource
-RUN chmod +x /opt/resource/*
 
 RUN apk --no-cache add \
         curl \
@@ -47,5 +44,8 @@ RUN curl -L -o helm.tar.gz \
         && rm -rf linux-amd64 \
         && helm init --client-only \
         && helm plugin install https://github.com/viglesiasce/helm-gcs.git
+
+ADD assets /opt/resource
+RUN chmod +x /opt/resource/*
 
 ENTRYPOINT [ "/bin/bash" ]

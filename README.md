@@ -144,9 +144,9 @@ resources:
       "auth_provider_x509_cert_url": "XXX",
       "client_x509_cert_url": "XXX"
       }
-    ca_cert: ((helm-auth.ca))
-    client_cert: ((helm-auth.cert))
-    client_key: ((helm-auth.key))
+    ca_cert: ((helm-auth-ca))
+    client_cert: ((helm-auth-cert))
+    client_key: ((helm-auth-key))
     repos:
     - name: my-charts
       url: https://my-charts.github.io/charts
