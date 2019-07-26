@@ -1,4 +1,5 @@
 #!/bin/bash
+set -x
 
 setup_kubernetes() {
     payload=$1
@@ -38,7 +39,7 @@ call_helm() {
     logfile="/tmp/log"
     mkdir -p /tmp
     helm ${array[@]} $TLS --tiller-namespace=$TILLER_NAMESPACE $last | tee $logfile
-    #release=`cat $logfile | grep "Release " | awk '{print $2}'`
+    release=`cat $logfile | grep "NAME:" | awk '{print $2}'`
 }
 
 setup_helm() {
